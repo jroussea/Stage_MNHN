@@ -1,0 +1,170 @@
+---
+title: "Pipeline Table d'annotation des superfamilles CATH"
+author: "Jérémy Rousseau"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    number_sections: yes
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+L'obectif de cet pipeline est de réaliser une table d'annotation des superfamille détecté avec CATH. Le tableau contient 5 colonnes :
+
+  * *Colonne 1* : identifiant de la superfamille\
+  * *Colonne 2* : nom de la superfamille (si disponible)\
+  * *Colonne 3* : description de la superfamille (si disponible)\
+  * *Colonne 4* : identifiant CATH\
+  * *Colonne 5* : identifiant Uniprot
+  
+# Préparation de la base de données
+
+Pour la création de ce tableau, nous avons utilisé la base de données *funvardb-1.0.0.sql*, elle contient les informations de la version de la base de données CATH 4.2.0 et de la version 4.3.0.
+
+La base de données funvardb-1.0.0.sql est disponible à l'adresse FTP : ftp://orengoftp.biochem.ucl.ac.uk dans le dossier */funvar/release/1.0/funvardb-1.0.0.sql.gz*. Pour la réalisation du tableau d'annotation, nous avons utiliser uniquement les informations de la base de CATH version 4.3.0. Les données sont présente dans le table *CATHdb4_3_0.sql*.
+Il faut également préparer le fichier CATH_ID.csv qui a été généré avec le script R *HMM_profil.R* présent dans le dossier */analysis_sequences/*.
+
+Cette préparation a été faite avec le script *prepare_data_annotation.sh*.
+
+```{bash prepare_data_anotation, eval=FALSE}
+#!/bin/bash
+
+cd /scratchbeta/rousseau/annotation
+
+date
+
+sed 1d CATH_ID.csv -i
+
+while read line
+do
+
+echo $line | sed 's/\"//' | sed 's/\"//' >> CATH_ID.txt
+
+done < CATH_ID.csv
+
+grep v4_3_0 funvardb-1.0.sql > CATHdb4_3_0.sql
+
+date
+```
+
+## Fichier d'entrée
+
+Ce script prend en entrée deux fichiers en entré :
+
+  * *CATH_ID.csv*\
+  * *funvardb-1.0.sql*\
+
+## Fichier de sortie
+
+Ce script génère deux fichiers en sortie :
+
+  * *CATH_ID.txt*\
+  * *CATHdb4_3_0.sql*\
+
+# Création du tableau d'annotation
+
+La création du tableau d'annotation est effectué grace au script *table_superfamily_annotation.sh*. Ce script est séparer en 5 parties.
+
+```{bash table_superfamily_annotation, eval=FALSE}
+#!/bin/bash
+
+cd /scratchbeta/rousseau/annotation
+
+mkdir Name_Superfamily
+mkdir Data_Superfamily
+mkdir CATH_ID
+mkdir UNIPROT_ID
+mkdir annot_by_ID
+
+pathName="Name_Superfamily"
+pathData="Data_Superfamily"
+pathCath="CATH_ID"
+pathUniprot="UNIPROT_ID"
+pathAnnot="annot_by_ID"
+
+count=0
+
+# Step 1
+
+while read line
+do
+
+let count++
+
+grep -P "$line\t" CATHdb4_3_0.sql > $pathName/name$count.csv
+grep "$line-" CATHdb4_3_0.sql > $pathData/data$count.csv
+
+done < CATH_ID.txt
+
+# Step 2
+
+NbFile=`ls $pathData/*.csv | wc -l`
+
+for (( i=1; i<=$NbFile; i++ ))
+do
+
+info=`cut -f 4,5 $pathData/data$i.csv
+echo "$info" > $pathData/data$i.csv
+
+done
+
+# Step 3
+
+for (( i=1; i<=$NbFile; i++ ))
+do
+
+info=`cut -f 2,4,5 $pathName/name$i.csv
+echo "$info" > $pathName/name$i.csv
+
+done
+
+# Step 4
+
+for (( i=1; i<=$NbFile; i++ ))
+do
+
+grep cath $pathName/name$i.csv > cath.csv
+grep uniprot $pathName/uniprot$i.csv > uniprot.csv
+
+InfoCath=`cut -f 1 cath.csv`
+InfoUniprot=`cut -f 1 ubiprot.csv`
+
+echo "$InfoCath" > cath.csv
+echo "$InfoUniprot" > uniprot.csv
+
+tr "\n" "|" < cath.csv > $pathCath/cath$i.csv
+tr "\n" "|" < uniprot.csv > $pathUniprot/uniprot$i.csv
+
+done
+
+#############
+
+
+
+
+NbFile=`ls $pathName/*.csv | wc -l`
+
+for (( i=1; i<=$NbFile; i++ ))
+do
+
+paste $pathName/name$i.csv $pathCath/cath$i.csv $pathUniprot/uniprot$i.csv > $pathAnnot/annot$i.csv
+
+done
+
+cat $pathAnnot/annot*.csv > temporary_table.csv
+
+echo -e "superfamily_ID\tsuperfamily_name\tsuperfamily_description\tCATH_ID\tUniprot_ID" > colnames.csv
+
+cat colname.csv temporary_table.csv > table_superfamily_annotation.csv
+
+```
+
+ * **Étape 1 :**
+
+La première étape de ce script consiste à récupérer les informations concernant le nom ainsi que 
+
